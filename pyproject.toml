@@ -1,0 +1,22 @@
+[project]
+name = "trade-copilot"
+version = "0.1.0"
+description = "Plain-English strategies to a paper backtest. Not financial advice."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Aziz Rehman" }]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/aziz4rehman-hue/trade-copilot"
+
+[project.scripts]
+tradecopilot = "tradecopilot.cli:main"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["tradecopilot*"]
