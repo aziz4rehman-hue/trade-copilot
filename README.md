@@ -4,7 +4,7 @@ Type a strategy in a sentence. Get a paper backtest back.
 
 It understands three requests: buy and hold, an SMA crossover, and RSI. The series is synthetic. A losing result is a valid result. On the demo tape, the SMA crossover loses money.
 
-**[See the live demo](https://aziz4rehman-hue.github.io/trade-copilot/)**
+**[See the live demo](https://htmlpreview.github.io/?https://raw.githubusercontent.com/aziz4rehman-hue/trade-copilot/main/docs/index.html)**
 
 **Not financial advice. This does not place an order.**
 
