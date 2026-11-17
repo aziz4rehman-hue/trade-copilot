@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>trade-copilot demo</title>
+<style>
+  :root { color-scheme: dark; --bg:#0c0f14; --card:#151b24; --line:#2a3444; --text:#e7edf5; --muted:#93a0b5; --accent:#e2b15a; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:16px/1.45 ui-sans-serif, system-ui, sans-serif; background:var(--bg); color:var(--text); }
+  header, main { width:min(720px, calc(100% - 32px)); margin:0 auto; }
+  header { padding:28px 0 8px; }
+  .kicker { color:var(--accent); letter-spacing:.14em; text-transform:uppercase; font-size:12px; margin:0 0 8px; }
+  h1 { font-size:28px; margin:0 0 8px; }
+  p { color:var(--muted); }
+  a { color:var(--accent); }
+  .chips { display:flex; flex-wrap:wrap; gap:8px; margin:16px 0; }
+  .chips button, .go { background:#1d2633; color:var(--text); border:1px solid var(--line); border-radius:999px; padding:10px 14px; font:inherit; }
+  form { display:flex; gap:8px; }
+  input { flex:1; background:#10151d; color:var(--text); border:1px solid var(--line); border-radius:12px; padding:12px; font:inherit; }
+  .go { border-radius:12px; background:var(--accent); color:#2a2108; font-weight:700; border:0; }
+  .panel { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px; margin:14px 0 28px; white-space:pre-wrap; font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:13px; }
+  .down { color:#ff8d8d; } .up { color:#7dffa8; }
+</style>
+</head>
+<body>
+<header>
+  <p class="kicker">Live demo</p>
+  <h1>trade-copilot</h1>
+  <p>One sentence, one paper backtest. Synthetic tape. A loss is a valid answer. <a href="https://github.com/aziz4rehman-hue/trade-copilot">Source</a></p>
+</header>
+<main>
+  <div class="chips">
+    <button type="button" data-q="sma crossover fast 10 slow 30">SMA 10/30</button>
+    <button type="button" data-q="buy and hold">Buy and hold</button>
+    <button type="button" data-q="rsi 14 buy below 30 sell above 70">RSI 14</button>
+  </div>
+  <form id="ask">
+    <input id="q" value="sma crossover fast 10 slow 30" aria-label="Strategy">
+    <button class="go" type="submit">Run</button>
+  </form>
+  <div class="panel" id="out"></div>
+</main>
+<script>
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return ((t^t>>>14)>>>0)/4294967296}}
+function gauss(rng){let u=rng()||1e-9,v=rng()||1e-9;return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v)}
+function tape(){const rng=mulberry32(3);let price=100;const out=[];for(let i=0;i<120;i++){const drift=(Math.floor(i/30)%2===0)?0.003:-0.003;price=Math.max(1,price*(1+drift+gauss(rng)*0.005));out.push(Math.round(price*10000)/10000)}return out}
+function parse(text){
+  const low=text.trim().toLowerCase();
+  if(/\bbuy[- ]and[- ]hold\b|\bbuyhold\b/.test(low)) return {name:"buyhold"};
+  const nums=(low.match(/\d+(?:\.\d+)?/g)||[]).map(Number);
+  if(/\brsi\b/.test(low)){
+    const period=nums[0]||14, buy=nums[1]??30, sell=nums[2]??70;
+    if(period<2||!(0<=buy&&buy<sell&&sell<=100)) throw new Error("rsi needs a period and 0 <= buy < sell <= 100");
+    return {name:"rsi", period, low:buy, high:sell};
+  }
+  if(/\bsma\b|crossover|moving average/.test(low)){
+    let fast=nums[0]||10, slow=nums[1]||30;
+    if(fast>slow) [fast,slow]=[slow,fast];
+    fast=Math.max(2,fast); slow=Math.max(fast+1,slow);
+    return {name:"sma", fast, slow};
+  }
+  throw new Error("Try buy and hold, sma crossover fast 10 slow 30, or rsi 14 30 70");
+}
+function rsi(closes, period){
+  if(closes.length<period+1) return null;
+  const w=closes.slice(-(period+1));
+  let gains=0, losses=0;
+  for(let i=1;i<w.length;i++){const d=w[i]-w[i-1]; if(d>=0) gains+=d; else losses-=d;}
+  if(losses===0) return 100;
+  const rs=(gains/period)/(losses/period);
+  return 100-100/(1+rs);
+}
+function want(spec, history, inn){
+  if(spec.name==="buyhold") return true;
+  if(spec.name==="sma"){
+    if(history.length<spec.slow) return false;
+    const f=history.slice(-spec.fast).reduce((a,b)=>a+b,0)/spec.fast;
+    const s=history.slice(-spec.slow).reduce((a,b)=>a+b,0)/spec.slow;
+    return f>s;
+  }
+  const value=rsi(history, spec.period);
+  if(value==null) return inn;
+  if(!inn && value<spec.low) return true;
+  if(inn && value>spec.high) return false;
+  return inn;
+}
+function run(spec){
+  const closes=tape();
+  let cash=10000, qty=0, avg=0, pending=null, closed=[];
+  const equity=[];
+  closes.forEach((price,i)=>{
+    if(pending!=null){
+      const inn=qty>0;
+      if(pending && !inn){ qty=cash/price; avg=price; cash=0; }
+      else if(!pending && inn){ closed.push((price-avg)*qty); cash+=qty*price; qty=0; avg=0; }
+      pending=null;
+    }
+    equity.push(cash+qty*price);
+    if(i<closes.length-1 && want(spec, closes.slice(0,i+1), qty>0)!==(qty>0)) pending=want(spec, closes.slice(0,i+1), qty>0);
+  });
+  let peak=equity[0], dd=0;
+  for(const v of equity){ peak=Math.max(peak,v); if(peak) dd=Math.min(dd,(v-peak)/peak); }
+  const wins=closed.filter(x=>x>0), losses=closed.filter(x=>x<0);
+  const win=closed.length? (wins.length/closed.length) : null;
+  const gross=-losses.reduce((a,b)=>a+b,0);
+  const pf=!closed.length? null : gross===0 ? Infinity : wins.reduce((a,b)=>a+b,0)/gross;
+  return {spec, end:equity.at(-1), ret:equity.at(-1)/10000-1, dd, trades:closed.length, win, pf};
+}
+function label(spec){
+  if(spec.name==="sma") return `sma crossover ${spec.fast}/${spec.slow}`;
+  if(spec.name==="rsi") return `rsi ${spec.period} buy below ${spec.low} sell above ${spec.high}`;
+  return "buy and hold";
+}
+function show(text){
+  const out=document.getElementById("out");
+  try {
+    const r=run(parse(text));
+    const win=r.win==null?"n/a":(r.win*100).toFixed(1)+"%";
+    const pf=r.pf==null?"n/a":r.pf===Infinity?"inf":r.pf.toFixed(2);
+    out.textContent=[
+      `strategy    ${label(r.spec)}`,
+      "bars        120 synthetic closes",
+      `equity      10000.00 -> ${r.end.toFixed(2)}`,
+      `return      ${(r.ret*100).toFixed(2)}%`,
+      `max DD      ${(r.dd*100).toFixed(2)}%`,
+      `trades      ${r.trades}`,
+      `win rate    ${win}`,
+      `profit fac  ${pf}`,
+      "fill rule   signal on this close, fill on the next close",
+      "not financial advice · paper research only · no live order"
+    ].join("\n");
+    out.className="panel "+(r.ret<0?"down":"up");
+  } catch(err) {
+    out.className="panel down";
+    out.textContent="error: "+err.message;
+  }
+}
+document.getElementById("ask").onsubmit=(e)=>{e.preventDefault(); show(document.getElementById("q").value);};
+document.querySelectorAll(".chips button").forEach(btn=>btn.onclick=()=>{document.getElementById("q").value=btn.dataset.q; show(btn.dataset.q);});
+show(document.getElementById("q").value);
+</script>
+</body>
+</html>
